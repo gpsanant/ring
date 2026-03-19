@@ -6,7 +6,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const { Game } = require('./game');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // --- Static file serving ---
 const MIME_TYPES = {
