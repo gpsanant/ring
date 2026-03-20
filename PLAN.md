@@ -1,53 +1,46 @@
-# Plan: Fix Countdown Map vs Playable Map Bug
+# Plan: Fix Player Name Size and Nickname Field Positioning
 
-## Problem
+## Problem Analysis
 
-When 2+ players join the lobby, a 5-second countdown starts. During this countdown, players see **map A** (the polygon generated in `resetForNextRound()` or the constructor) and their characters are positioned on map A. However, when `startRound()` fires at the end of the countdown, it **regenerates the polygon** (lines 382-386 of `server/game.js`), creating **map B**. Players are then repositioned onto map B. This causes a jarring visual jump — the arena shape changes and players teleport.
+### Issue 1: Player name overlaps with character
 
-## Root Cause
+In `client/client.js:373-376`, the name label is rendered with:
+- Font size: `Math.max(8, r * 0.35)` — effectively always 8px since `r * 0.35` rarely exceeds 8
+- Position: `py + r * 1.3` (text baseline)
 
-In `server/game.js`, the `startRound()` method (line 380) calls `generateConvexPolygon()` to create new `arenaVertices`, `arenaCentroid`, and `ringVertices`. This overwrites the polygon that was already being shown to players during the lobby/countdown phase. The polygon is already generated at two appropriate lifecycle points:
-1. In the `Game` constructor (for the very first round)
-2. In `resetForNextRound()` (for subsequent rounds)
+The stick figure legs end at `py + r * 0.8`. The text top (ascender) is approximately `baseline - fontSize`, so the text occupies from `py + r*1.3 - 8` to `py + r*1.3`.
 
-The `startRound()` method should NOT regenerate the polygon — it should reuse what's already there.
+For overlap check with typical `r ≈ 8-14`:
+- Legs bottom: `py + r*0.8` ≈ `py + 6.4` to `py + 11.2`
+- Text top: `py + r*1.3 - 8` ≈ `py + 2.4` to `py + 10.2`
+- **The text clearly overlaps with the legs in all typical screen sizes.**
 
-## Fix
+### Issue 2: Nickname input overlaps with map
 
-### `server/game.js` — `startRound()` method (lines 380-408)
+In `client/index.html:138-147`, `#nickname-container` uses `position: absolute; top: 60px; left: 50%; transform: translateX(-50%)`. The canvas is vertically centered via flexbox. On typical screens (viewport 700-900px), the canvas top can be as low as 40px, meaning the centered nickname field at 60px sits directly on top of the map canvas.
 
-**Remove** lines 382-386 (the polygon regeneration):
-```js
-// DELETE THESE LINES:
-this.arenaVertices = generateConvexPolygon(
-  5 + Math.floor(Math.random() * 6),
-  ARENA_RADIUS
-);
-this.arenaCentroid = getPolygonCentroid(this.arenaVertices);
-```
+## Solution
 
-**Keep** the ring vertex reset — the ring must be reset to the full arena size at round start (it may have shrunk in a previous round), but referencing the existing `arenaVertices`:
-```js
-this.ringVertices = this.arenaVertices.map((v) => ({ x: v.x, y: v.y }));
-```
+### `client/client.js` — Name label (2 changes)
 
-Player respawning (lines 393-408) continues to work as-is since it uses `this.arenaVertices` and `this.arenaCentroid`, which now refer to the same polygon shown during countdown.
+1. **Reduce font size**: Change `Math.max(8, r * 0.35)` to `Math.max(7, r * 0.25)` — slightly smaller minimum
+2. **Position dynamically below feet**: Instead of a fixed multiplier `py + r * 1.3`, compute the position as `py + r * 0.8 + fontSize + 2`. This places the text baseline at: feet bottom (`r*0.8`) + full font height + 2px padding. This guarantees no overlap at any scale since the text ascender starts exactly 2px below the feet.
 
-### `test/game.test.js` — Update "Each new round generates a different polygon shape" test
+### `client/index.html` — Nickname container (1 change)
 
-This test currently calls `startRound()` twice expecting different polygons. Since `startRound()` will no longer regenerate the polygon, update the test to verify that `resetForNextRound()` (which runs between rounds) generates a new polygon.
+Reposition `#nickname-container` to the top-right corner:
+- Change from: `top: 60px; left: 50%; transform: translateX(-50%)`
+- Change to: `top: 10px; right: 16px`
+- Remove `left` and `transform` properties
 
-### Add new test: "Countdown map matches round map"
-
-Add a test that verifies `arenaVertices` before and after `startRound()` are identical — confirming the bug is fixed.
+This places the nickname field in the top-right where it won't overlap with either the centered HUD text or the map canvas below.
 
 ## Scope
 
-**Mode: single** — This is a well-contained bug fix in `server/game.js` with a corresponding test update in `test/game.test.js`. No client changes needed since the client renders whatever `arenaVertices` the server sends.
+**Mode: single** — Two client-side files, three localized CSS/JS changes, no server changes, no dependencies.
 
 ## Verification
 
-- `npm test` passes with all existing + new tests
-- The "Each new round generates a different polygon shape" test is updated to test the correct lifecycle point
-- A new test confirms `startRound()` preserves the lobby polygon
-- Visual: During countdown, the map shape and player positions remain identical when the round begins
+- `npm test` still passes (all 887 tests — server-only, unaffected by client changes)
+- Visual: player names appear in smaller font clearly below the stick figure with no overlap
+- Visual: nickname input field sits in top-right corner, away from map canvas and HUD
