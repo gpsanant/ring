@@ -1,130 +1,71 @@
-# Implementation Plan: Dynamic Maps with Randomly Generated Arena Shapes
+# Plan: Player Nicknames and Name Label Fix
 
 ## Overview
 
-Replace the static circular arena in Ring - Battle Royale with randomly generated convex polygon arenas that change each round. The shrinking ring contracts the polygon toward its centroid. All boundary checks switch from distance-from-center to point-in-polygon math.
+Two-part improvement: (1) fix name label rendering (too large, overlapping sprite), and (2) add nickname support via a `set_name` WebSocket message and client-side UI input.
 
-## Technical Approach
+## Part 1: Fix Name Label Rendering
 
-### 1. Polygon Geometry Utilities (server/game.js)
+### Current State (client/client.js, `drawStickFigure()`, lines 369–372)
+- **Font size**: `Math.max(10, r * 0.5)px monospace` where `r = 15 * scale` — scales with zoom, often too large relative to the stick figure
+- **Position**: `py + r * 1.1` — barely below the body, overlaps with stick figure legs (which end at `py + r * 0.8`)
 
-Add pure functions for convex polygon operations. No external dependencies needed — the math is straightforward.
+### Fix
+- **Reduce font size**: Change from `r * 0.5` to `r * 0.35`, lower minimum to `8` → `Math.max(8, r * 0.35)`
+- **Reposition below feet**: Change y-position from `py + r * 1.1` to `py + r * 1.3` — clears the leg endpoints at `py + r * 0.8` with comfortable margin
 
-**`generateConvexPolygon(numVertices, radius)`**
-- Generate N random angles, sort them, place vertices on the circle at `radius` with slight radial jitter (0.75–1.0 × radius) for variety.
-- Returns `[{x, y}, ...]` in CCW order.
-- Vertex count: random integer in [5, 10].
+## Part 2: Nickname Support
 
-**`getPolygonCentroid(vertices)`**
-- Standard centroid formula: average of all vertex coordinates (sufficient for convex polygons with roughly uniform vertex distribution).
+### Client-Side UI (client/index.html + client/client.js)
 
-**`scalePolygonTowardCentroid(vertices, centroid, t)`**
-- Returns new vertices where each vertex is lerped toward centroid by factor `t` (0 = original, 1 = collapsed to centroid).
-- `newVertex = centroid + (vertex - centroid) * (1 - t)`
+**HTML** — Add a nickname input element:
+- A `<div id="nickname-container">` with an `<input type="text" id="nickname-input" maxlength="16" placeholder="Enter nickname...">` and a `<button id="nickname-set">Set</button>`
+- Positioned in the HUD area (e.g., below the status text, above the canvas)
+- Styled to match existing dark theme: `#1a1a2e` background, monospace font, `#4fc` accent color, similar to existing controls-dialog styling
 
-**`pointInConvexPolygon(px, py, vertices)`**
-- Cross-product winding test: for each edge, check that point is on the same side (left/CCW) of every edge. O(N) where N ≤ 10, so trivially fast.
+**JavaScript** — Event handling:
+- On submit (Enter key or button click): send `{ type: 'set_name', name: inputValue }` via WebSocket
+- **WASD prevention**: In the existing `keydown`/`keyup` handlers, check `if (document.activeElement === nicknameInput) return;` to prevent game input while typing
+- Similarly, prevent the 'H' key (controls dialog toggle) while input is focused
 
-**`clampPointToPolygon(px, py, vertices)`**
-- If point is inside, return as-is.
-- Otherwise, find the closest point on the polygon boundary: project onto each edge segment, return the nearest projection. O(N).
+### Server-Side (server/index.js + server/game.js)
 
-**`randomPointInConvexPolygon(vertices, centroid, radiusFraction)`**
-- For spawns: pick a point at ~80% distance from centroid toward a polygon vertex/edge. Use angular distribution around centroid scaled to the polygon boundary.
+**server/index.js** — WebSocket `message` handler (line 85–93):
+- Add handling for `msg.type === 'set_name'`: call `game.setPlayerName(playerId, msg.name)`
 
-### 2. Server Game Logic Changes (server/game.js)
+**server/game.js** — New method `setPlayerName(playerId, name)` on Game class:
+1. Look up player by ID; return if not found
+2. Validate `typeof name === 'string'`; if not, fall back to default
+3. Trim whitespace: `name.trim()`
+4. Enforce max 16 characters: `name.slice(0, 16)`
+5. If result is empty after trim, fall back to `'Player N'`
+6. Set `player.name = validatedName`
 
-**New state fields on Game:**
-- `this.arenaVertices` — the full-size polygon for the current round (array of {x,y})
-- `this.arenaCentroid` — centroid of arenaVertices
-- `this.ringVertices` — the current shrunk polygon (recomputed each tick)
+No further broadcast changes needed — the `name` field is already included in `getState()` and sent to all clients every tick.
 
-**`constructor()` changes:**
-- Initialize `arenaVertices` with a default polygon (for lobby display).
-- Compute and store `arenaCentroid`.
-- Set `ringVertices = [...arenaVertices]`.
-
-**`startRound()` changes:**
-- Call `generateConvexPolygon(randomInt(5,10), ARENA_RADIUS)` to create new arena shape.
-- Compute centroid.
-- Store `arenaVertices` and `arenaCentroid`.
-- Set `ringVertices = arenaVertices` (ring starts at full size).
-- Spawn players inside polygon.
-
-**`resetForNextRound()` changes:**
-- Generate a new polygon for the lobby.
-- Spawn players inside polygon.
-
-**`tickActive()` changes:**
-- Compute `shrinkProgress` as before (0→1 over 75s).
-- `ringVertices = scalePolygonTowardCentroid(arenaVertices, arenaCentroid, shrinkProgress * 0.95)`.
-
-**`movePlayer()` changes:**
-- Replace distance-from-center check with `pointInConvexPolygon`.
-- If outside, use `clampPointToPolygon` to push to nearest edge.
-
-**`updateBullets()` changes:**
-- Replace `dist > ARENA_RADIUS + 50` with `!pointInConvexPolygon(bullet.x, bullet.y, arenaVertices)`. Add small margin by checking against a slightly expanded version of arenaVertices.
-
-**`applyRingDamage()` changes:**
-- Replace `dist > this.ringRadius` with `!pointInConvexPolygon(player.x, player.y, this.ringVertices)`.
-
-**`spawnPlayer()` and `startRound()` spawn logic changes:**
-- Replace circular spawn with point inside current arena polygon at ~80% from centroid.
-
-**`getState()` changes:**
-- Add `arenaVertices` and `ringVertices` arrays to serialized state.
-- Keep `arenaRadius` for backward compatibility / camera framing.
-
-### 3. Client Rendering Changes (client/client.js)
-
-**Arena background:**
-- Replace `ctx.arc(cx, cy, arenaRadius * scale, ...)` with polygon path using `gameState.arenaVertices`.
-
-**Ring boundary:**
-- Replace ring arc with polygon path using `gameState.ringVertices`.
-
-**Danger zone:**
-- Draw arena polygon fill, then clip to ring polygon inverse for the red tint overlay.
-
-**State reception:**
-- Read `arenaVertices` and `ringVertices` from game state messages.
-
-### 4. Test Updates (test/game.test.js)
-
-Tests affected:
-- **"Game initializes in lobby state"** — check `arenaVertices` exists, is array with 5-10 vertices.
-- **"Players spawn around arena edge in lobby"** — verify spawn is inside polygon.
-- **"Movement is clamped to arena bounds"** — verify clamped to polygon edge.
-- **"Ring shrinks during active game"** — verify ringVertices are closer to centroid than arenaVertices.
-- **"Ring damage applies to players outside ring"** — place player outside ringVertices polygon.
-- **"Game state serialization works"** — check for `arenaVertices` and `ringVertices` fields.
-
-New tests to add:
-- Polygon generation produces valid convex polygon with correct vertex count.
-- Point-in-polygon correctly classifies inside/outside points.
-- Polygon scaling produces smaller polygon.
-- Bullets removed when exiting polygon.
-- Each new round generates a different polygon shape.
-
-### 5. Performance Considerations
-
-- Point-in-polygon with N ≤ 10 vertices is ~10 cross-product operations — negligible.
-- `clampPointToPolygon` iterates edges (≤ 10) — negligible.
-- Ring vertices recomputed each tick (20 Hz) with ≤ 10 lerps — negligible.
-- No performance concerns for this vertex count.
-
-## Execution Strategy
-
-**Single agent** — all changes are tightly coupled. The polygon math, game logic, client rendering, and tests all depend on consistent polygon data structures and interfaces. Splitting would create merge conflicts and integration complexity.
+### Win Announcement
+Already handled: client.js line 171 uses `winner.name` for display. Once the server-side name is updated, it propagates automatically.
 
 ## Files Modified
 
-1. `server/game.js` — polygon generation, boundary logic, state serialization
-2. `client/client.js` — polygon rendering
-3. `test/game.test.js` — updated and new tests
+1. **client/index.html** — Add nickname input `<div>` + styling
+2. **client/client.js** — Fix name label font/position; prevent WASD when nickname input focused; send `set_name` message
+3. **server/index.js** — Handle `set_name` WebSocket message
+4. **server/game.js** — Add `setPlayerName()` method with validation
+5. **test/game.test.js** — Add tests for `setPlayerName()` validation
 
-## Sources
+## Testing Strategy
 
-- Point-in-polygon (cross-product method for convex polygons): standard computational geometry, no external library needed
-- Convex polygon generation via sorted random angles: standard approach for generating random convex polygons inscribed in a circle
+Add unit tests for `setPlayerName()`:
+- Valid nickname is accepted and stored
+- Whitespace is trimmed
+- Names longer than 16 chars are truncated
+- Empty/whitespace-only names fall back to `'Player N'`
+- Non-string input falls back to `'Player N'`
+- Name appears in serialized game state
+
+Run full existing test suite to verify no regressions.
+
+## Scope Assessment
+
+**Mode: single** — All changes are tightly coupled (client UI → WebSocket message → server validation → state broadcast → client render). No benefit from parallel execution.
