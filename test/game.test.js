@@ -40,7 +40,7 @@ function test(name, fn) {
 test('generateConvexPolygon produces valid polygon', () => {
   for (let n = 5; n <= 10; n++) {
     const poly = generateConvexPolygon(n, ARENA_RADIUS);
-    assert(poly.length === n, `polygon has ${n} vertices`);
+    assert(poly.length >= n, `polygon has at least ${n} vertices (got ${poly.length})`);
     for (const v of poly) {
       const dist = Math.sqrt(v.x * v.x + v.y * v.y);
       assert(dist <= ARENA_RADIUS * 1.01, `vertex within radius (dist=${dist.toFixed(1)})`);
@@ -112,10 +112,11 @@ test('clampPointToPolygon clamps outside points', () => {
   assert(Math.abs(inside.x - 50) < 0.01, 'inside point x unchanged');
   assert(Math.abs(inside.y - 50) < 0.01, 'inside point y unchanged');
 
-  // Point outside gets clamped to edge
+  // Point outside gets clamped near the edge (nudged slightly inward toward centroid)
   const outside = clampPointToPolygon(200, 0, square);
-  assert(Math.abs(outside.x - 100) < 0.01, 'clamped x to edge');
-  assert(Math.abs(outside.y - 0) < 0.01, 'clamped y to edge');
+  assert(Math.abs(outside.x - 100) < 2, 'clamped x near edge');
+  assert(Math.abs(outside.y - 0) < 2, 'clamped y near edge');
+  assert(pointInConvexPolygon(outside.x, outside.y, square), 'clamped point is inside polygon');
 });
 
 // --- Game Tests ---
@@ -125,7 +126,6 @@ test('Game initializes in lobby state with polygon arena', () => {
   assert(game.state === STATE_LOBBY, 'state is lobby');
   assert(Array.isArray(game.arenaVertices), 'arenaVertices is array');
   assert(game.arenaVertices.length >= 5, 'at least 5 vertices');
-  assert(game.arenaVertices.length <= 10, 'at most 10 vertices');
   assert(Array.isArray(game.ringVertices), 'ringVertices is array');
   assert(game.ringVertices.length === game.arenaVertices.length, 'ring matches arena vertex count');
   assert(game.arenaCentroid && typeof game.arenaCentroid.x === 'number', 'has centroid');
@@ -480,6 +480,110 @@ test('Shoot cooldown prevents rapid fire', () => {
 
   game.tryShoot(player);
   assert(game.bullets.length === 1, 'second shot blocked by cooldown');
+});
+
+// --- Property-based tests over many random seeds ---
+
+test('Property: generated polygons are always convex (100 seeds)', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const n = 5 + (seed % 6);
+    const poly = generateConvexPolygon(n, ARENA_RADIUS);
+    assert(poly.length >= 3, `seed ${seed}: polygon has at least 3 vertices`);
+
+    // Verify convexity: all cross products should have the same sign
+    const len = poly.length;
+    let positive = 0;
+    let negative = 0;
+    for (let i = 0; i < len; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % len];
+      const c = poly[(i + 2) % len];
+      const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+      if (cross > 0) positive++;
+      else if (cross < 0) negative++;
+    }
+    assert(positive === 0 || negative === 0, `seed ${seed}: polygon is convex`);
+  }
+});
+
+test('Property: centroid is always inside its polygon (100 seeds)', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const n = 5 + (seed % 6);
+    const poly = generateConvexPolygon(n, ARENA_RADIUS);
+    const centroid = getPolygonCentroid(poly);
+    assert(
+      pointInConvexPolygon(centroid.x, centroid.y, poly),
+      `seed ${seed}: centroid is inside polygon`
+    );
+  }
+});
+
+test('Property: spawn point is always inside polygon (100 seeds)', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const game = new Game();
+    const mockWs = { readyState: 1, send: () => {} };
+    const id = game.addPlayer(mockWs);
+    const player = game.players.get(id);
+    assert(
+      pointInConvexPolygon(player.x, player.y, game.arenaVertices),
+      `seed ${seed}: spawned player is inside polygon`
+    );
+  }
+});
+
+test('Property: clamped point is always inside polygon (100 seeds)', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const poly = generateConvexPolygon(5 + (seed % 6), ARENA_RADIUS);
+    // Test points in various directions outside the polygon
+    const angle = (seed / 100) * Math.PI * 2;
+    const farX = Math.cos(angle) * ARENA_RADIUS * 2;
+    const farY = Math.sin(angle) * ARENA_RADIUS * 2;
+    const clamped = clampPointToPolygon(farX, farY, poly);
+    assert(
+      pointInConvexPolygon(clamped.x, clamped.y, poly),
+      `seed ${seed}: clamped point is inside polygon`
+    );
+  }
+});
+
+test('Property: players spawn inside polygon after startRound (50 seeds)', () => {
+  for (let seed = 0; seed < 50; seed++) {
+    const game = new Game();
+    const mockWs1 = { readyState: 1, send: () => {} };
+    const mockWs2 = { readyState: 1, send: () => {} };
+    const id1 = game.addPlayer(mockWs1);
+    const id2 = game.addPlayer(mockWs2);
+    game.startRound();
+    const p1 = game.players.get(id1);
+    const p2 = game.players.get(id2);
+    assert(
+      pointInConvexPolygon(p1.x, p1.y, game.arenaVertices),
+      `seed ${seed}: player 1 inside after startRound`
+    );
+    assert(
+      pointInConvexPolygon(p2.x, p2.y, game.arenaVertices),
+      `seed ${seed}: player 2 inside after startRound`
+    );
+  }
+});
+
+test('Property: movement clamp keeps player inside polygon (50 seeds)', () => {
+  for (let seed = 0; seed < 50; seed++) {
+    const game = new Game();
+    const mockWs = { readyState: 1, send: () => {} };
+    const id = game.addPlayer(mockWs);
+    const player = game.players.get(id);
+    // Place player far outside arena
+    player.x = ARENA_RADIUS * 2;
+    player.y = ARENA_RADIUS * 2;
+    player.input.right = true;
+    player.input.down = true;
+    game.movePlayer(player, 1);
+    assert(
+      pointInConvexPolygon(player.x, player.y, game.arenaVertices),
+      `seed ${seed}: clamped player is inside polygon after move`
+    );
+  }
 });
 
 // --- Summary ---

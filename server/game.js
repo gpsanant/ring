@@ -19,20 +19,69 @@ const TICK_INTERVAL_MS = 1000 / TICK_RATE;
 
 // --- Polygon Geometry Utilities ---
 
-function generateConvexPolygon(numVertices, radius) {
-  // Generate random angles, sort them, place vertices on circle with radial jitter
-  const angles = [];
-  for (let i = 0; i < numVertices; i++) {
-    angles.push(Math.random() * Math.PI * 2);
-  }
-  angles.sort((a, b) => a - b);
+function convexHull(points) {
+  // Andrew's monotone chain algorithm — returns CCW convex hull
+  const pts = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length <= 1) return pts;
 
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2) {
+      const a = lower[lower.length - 2];
+      const b = lower[lower.length - 1];
+      if ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) <= 0) {
+        lower.pop();
+      } else break;
+    }
+    lower.push(p);
+  }
+
+  const upper = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2) {
+      const a = upper[upper.length - 2];
+      const b = upper[upper.length - 1];
+      if ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) <= 0) {
+        upper.pop();
+      } else break;
+    }
+    upper.push(p);
+  }
+
+  // Remove last point of each half because it's repeated
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function generateConvexPolygon(numVertices, radius) {
+  // Generate random points, take convex hull, retry until hull has >= numVertices
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const rawPoints = [];
+    // Generate extra points to increase chances the hull has enough vertices
+    const count = numVertices * 3;
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = radius * (0.75 + Math.random() * 0.25);
+      rawPoints.push({
+        x: Math.cos(angle) * r,
+        y: Math.sin(angle) * r,
+      });
+    }
+    const hull = convexHull(rawPoints);
+    if (hull.length >= numVertices) {
+      return hull;
+    }
+  }
+  // Fallback: place vertices evenly on circle (guaranteed convex)
   const vertices = [];
   for (let i = 0; i < numVertices; i++) {
+    const angle = (i / numVertices) * Math.PI * 2;
     const r = radius * (0.75 + Math.random() * 0.25);
     vertices.push({
-      x: Math.cos(angles[i]) * r,
-      y: Math.sin(angles[i]) * r,
+      x: Math.cos(angle) * r,
+      y: Math.sin(angle) * r,
     });
   }
   return vertices;
@@ -60,7 +109,9 @@ function pointInConvexPolygon(px, py, vertices) {
   const n = vertices.length;
   if (n < 3) return false;
 
-  // Cross-product sign test: point must be on the same side of every edge
+  // Cross-product sign test with epsilon tolerance for edge cases.
+  // Point must be on the same side of every edge (or within epsilon of an edge).
+  const EPS = 1e-6;
   let sign = 0;
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
@@ -70,12 +121,12 @@ function pointInConvexPolygon(px, py, vertices) {
     const dy = py - vertices[i].y;
     const cross = ex * dy - ey * dx;
 
-    if (cross !== 0) {
-      if (sign === 0) {
-        sign = cross > 0 ? 1 : -1;
-      } else if ((cross > 0 ? 1 : -1) !== sign) {
-        return false;
-      }
+    if (Math.abs(cross) <= EPS) continue; // on edge — treat as inside
+
+    if (sign === 0) {
+      sign = cross > 0 ? 1 : -1;
+    } else if ((cross > 0 ? 1 : -1) !== sign) {
+      return false;
     }
   }
   return true;
@@ -91,6 +142,7 @@ function clampPointToPolygon(px, py, vertices) {
   let bestX = px;
   let bestY = py;
   const n = vertices.length;
+  const centroid = getPolygonCentroid(vertices);
 
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
@@ -121,22 +173,31 @@ function clampPointToPolygon(px, py, vertices) {
     }
   }
 
+  // Nudge the clamped point slightly inward toward centroid to avoid floating-point edge issues
+  const NUDGE = 0.01;
+  bestX = bestX + (centroid.x - bestX) * NUDGE;
+  bestY = bestY + (centroid.y - bestY) * NUDGE;
+
   return { x: bestX, y: bestY };
 }
 
 function randomPointInPolygon(vertices, centroid, radiusFraction) {
-  // Pick a random vertex direction and place at radiusFraction from centroid toward boundary
-  const idx = Math.floor(Math.random() * vertices.length);
-  const next = (idx + 1) % vertices.length;
-  // Random point along edge
-  const edgeT = Math.random();
-  const edgeX = vertices[idx].x + (vertices[next].x - vertices[idx].x) * edgeT;
-  const edgeY = vertices[idx].y + (vertices[next].y - vertices[idx].y) * edgeT;
-  // Lerp from centroid toward edge point at radiusFraction
-  return {
-    x: centroid.x + (edgeX - centroid.x) * radiusFraction,
-    y: centroid.y + (edgeY - centroid.y) * radiusFraction,
-  };
+  // Pick a random edge, choose a random point along it, then lerp from centroid.
+  // Validate the result is inside the polygon; retry if not (defensive).
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const idx = Math.floor(Math.random() * vertices.length);
+    const next = (idx + 1) % vertices.length;
+    const edgeT = Math.random();
+    const edgeX = vertices[idx].x + (vertices[next].x - vertices[idx].x) * edgeT;
+    const edgeY = vertices[idx].y + (vertices[next].y - vertices[idx].y) * edgeT;
+    const px = centroid.x + (edgeX - centroid.x) * radiusFraction;
+    const py = centroid.y + (edgeY - centroid.y) * radiusFraction;
+    if (pointInConvexPolygon(px, py, vertices)) {
+      return { x: px, y: py };
+    }
+  }
+  // Fallback: centroid is always inside a convex polygon
+  return { x: centroid.x, y: centroid.y };
 }
 
 // --- Game States ---
@@ -401,10 +462,7 @@ class Game {
       bullet.x += bullet.vx * dt;
       bullet.y += bullet.vy * dt;
 
-      // Check if bullet is outside arena polygon
-      if (!pointInConvexPolygon(bullet.x, bullet.y, this.arenaVertices)) return false;
-
-      // Check collision with players
+      // Check collision with players first (before boundary removal)
       for (const player of this.players.values()) {
         if (!player.alive || player.id === bullet.ownerId) continue;
         if (this.spectators.has(player.id)) continue;
@@ -422,6 +480,9 @@ class Game {
           return false; // bullet consumed
         }
       }
+
+      // Check if bullet is outside arena polygon
+      if (!pointInConvexPolygon(bullet.x, bullet.y, this.arenaVertices)) return false;
 
       return true;
     });
