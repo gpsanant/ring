@@ -370,10 +370,11 @@ function drawStickFigure(player, scale, cx, cy) {
   }
 
   // Name label
-  ctx.font = `${Math.max(8, r * 0.35)}px monospace`;
+  const fontSize = Math.max(7, r * 0.25);
+  ctx.font = `${fontSize}px monospace`;
   ctx.fillStyle = isMe ? '#4fc' : '#aaa';
   ctx.textAlign = 'center';
-  ctx.fillText(player.name, px, py + r * 1.3);
+  ctx.fillText(player.name, px, py + r * 0.8 + fontSize + 2);
 
   ctx.restore();
 }
