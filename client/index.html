@@ -67,6 +67,74 @@
       z-index: 10;
       pointer-events: none;
     }
+    #controls-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.6);
+    }
+    #controls-dialog {
+      background: #1a1a2e;
+      border: 1px solid #555;
+      border-radius: 8px;
+      padding: 24px 32px;
+      max-width: 360px;
+      text-align: center;
+    }
+    #controls-dialog h2 {
+      margin: 0 0 16px 0;
+      font-size: 20px;
+      color: #4fc;
+    }
+    #controls-dialog table {
+      margin: 0 auto 16px auto;
+      border-collapse: collapse;
+    }
+    #controls-dialog td {
+      padding: 4px 12px;
+      font-size: 14px;
+    }
+    #controls-dialog td:first-child {
+      text-align: right;
+      color: #4fc;
+      font-weight: bold;
+    }
+    #controls-dialog td:last-child {
+      text-align: left;
+      color: #ccc;
+    }
+    #controls-dismiss {
+      background: #4fc;
+      color: #111;
+      border: none;
+      padding: 8px 24px;
+      font-family: monospace;
+      font-size: 14px;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    #controls-dismiss:hover {
+      background: #3eb;
+    }
+    #controls-hint {
+      position: absolute;
+      bottom: 50px;
+      right: 16px;
+      font-size: 12px;
+      color: #666;
+      z-index: 10;
+      cursor: pointer;
+    }
+    #controls-hint:hover {
+      color: #aaa;
+    }
   </style>
 </head>
 <body>
@@ -79,6 +147,18 @@
   <div id="hp-bar-container">
     <div id="hp-bar"></div>
   </div>
+  <div id="controls-overlay">
+    <div id="controls-dialog">
+      <h2>Controls</h2>
+      <table>
+        <tr><td>W A S D</td><td>Move</td></tr>
+        <tr><td>Mouse</td><td>Aim</td></tr>
+        <tr><td>Left Click</td><td>Shoot</td></tr>
+      </table>
+      <button id="controls-dismiss">Got it</button>
+    </div>
+  </div>
+  <div id="controls-hint">Press H for controls</div>
   <script src="client.js"></script>
 </body>
 </html>

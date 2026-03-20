@@ -1,67 +1,48 @@
 # Integration Summary
 
 ## Plan Branch
-agent/e0fb6a62-cdb3-4414-8464-8e11dcb9b21a
+agent/18caef05-e1ed-4361-b047-913650f0ad18
 ## Upstream Repository
 soli-testbench/ring
 
 ## Suggested PR Title
-feat(game): implement Ring - Battle Royale core game loop
+feat(client): add controls dialog overlay
 
 ## Suggested PR Description
 ## Summary
+- Added a dismissible controls overlay that appears when the game first loads, showing WASD movement, mouse aiming, and click-to-shoot instructions
+- Dialog can be dismissed via "Got it" button, clicking the backdrop, Escape key, or H key
+- WebSocket connection initializes in the background without being blocked by the dialog
+- Visual style uses monospace font and dark color scheme consistent with the existing game aesthetic
+- Added a persistent "Press H for controls" hint so players can re-open the dialog at any time
 
-Implements the complete core game loop for Ring - Battle Royale, a browser-based top-down multiplayer arena game.
+## Acceptance Criteria
+- [x] Controls dialog displayed prominently on page load
+- [x] WASD / Mouse / Click controls clearly communicated
+- [x] Dismissible via button, backdrop click, Escape, or H key
+- [x] Does not reappear after dismissal (unless user explicitly presses H)
+- [x] Does not block WebSocket or game initialization
+- [x] Consistent with low-fidelity monospace aesthetic
 
-### Architecture
+## Test plan
+- [x] All 44 existing game tests pass
+- [ ] Manual: Open game in browser and verify overlay appears
+- [ ] Manual: Click "Got it" to dismiss, verify it stays dismissed
+- [ ] Manual: Press H to re-open, Escape to close
+- [ ] Manual: Verify game connects to server while overlay is shown
 
-- **Server** (`server/`): Node.js HTTP server with `ws` WebSocket library. Server-authoritative game engine runs at 20 ticks/second, handling all movement, collision detection, ring shrinking, and damage calculations.
-- **Client** (`client/`): Vanilla HTML5 Canvas renderer with stick-figure aesthetic. Sends input at 20Hz, receives authoritative state updates.
-- **Tests** (`test/`): 44 unit tests covering game initialization, player management, combat, ring mechanics, round lifecycle, and spectator mode.
-
-### Features
-
-- **Multiplayer**: WebSocket connections with automatic reconnection. Multiple concurrent players supported.
-- **Controls**: WASD movement, mouse aiming, click-to-shoot with a universal weapon (300ms cooldown, 34 damage per hit).
-- **Arena**: Circular arena (500px radius) with a shrinking ring over 75 seconds. Players outside the ring take 20 DPS.
-- **Round Lifecycle**: Lobby (5s countdown when 2+ players) → Active (shrinking ring) → Round End (winner declared, 5s delay) → Reset.
-- **Spectator Mode**: Players joining mid-match spectate until the next round begins.
-- **Anti-cheat**: All game state computed server-side. Movement clamped to arena bounds. Input sanitized.
-- **Visual Style**: Low-fidelity stick figures with head, body, legs, and weapon arm. HP bars, danger zone overlay, grid lines.
-
-### Acceptance Criteria Met
-
-- [x] Browser-based top-down game renders circular arena with stick-figure players
-- [x] WebSocket multiplayer with concurrent player support
-- [x] WASD movement, mouse aiming, click-to-shoot
-- [x] Universal weapon — no pickups, abilities, or classes
-- [x] Ring shrinks over 75 seconds; out-of-bounds damage/elimination
-- [x] Round ends when one player remains; winner declared
-- [x] Full round lifecycle: lobby → active → end → reset
-- [x] Mid-match spectator mode
-- [x] Server-authoritative game state
-- [x] Consistent stick-figure visual style
-
-## Test Plan
-
-- [x] 44 unit tests passing (`npm test`)
-- [x] Server starts without errors (`npm start`)
-- [ ] Manual testing: open multiple browser tabs to verify multiplayer gameplay
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 ---
 
 ## Original Task
 
-**Description**: Build the complete core game loop for Ring - Battle Royale. Players join a lobby via browser and spawn around the edges of a circular arena. The game is top-down perspective with a low-fidelity stick-figure aesthetic. Movement is WASD, aiming follows the mouse cursor, and clicking fires a single universal weapon (no pickups, abilities, or classes). The circular arena shrinks over 60-90 seconds, forcing players together until one survivor remains. If a match is already in progress, new visitors enter spectator mode and wait for the next round. Multiplayer is handled via WebSockets with server-authoritative game state. The full round lifecycle must be implemented: lobby/waiting → in-progress (with shrinking ring) → round end (winner declared) → reset for next round.
+**Description**: Display an informational controls dialog/overlay when a user first opens the game. The dialog should clearly show the game controls: WASD for movement, mouse cursor for aiming, and left-click to shoot. The dialog should be dismissible (e.g., click anywhere, press any key, or click a close button) so the player can start playing. This is a client-side only change — no server modifications needed.
 
 **Acceptance Criteria**:
-1. Browser-based top-down game renders a circular arena with stick-figure players.
-2. Players connect via WebSocket; multiple concurrent players are supported.
-3. WASD movement, mouse aiming, and click-to-shoot controls function correctly.
-4. All players have the same weapon — no pickups, abilities, or class selection.
-5. The arena ring visibly shrinks over a 60-90 second period; players outside the ring take damage or are eliminated.
-6. A round ends when one player remains; that player is declared the winner.
-7. Full round lifecycle works: lobby/waiting → active round → round end → automatic reset to next round.
-8. Players arriving mid-match enter spectator mode and can watch the current round until the next one begins.
-9. Server-authoritative game state prevents basic cheating (e.g., position is validated server-side).
-10. Low-fidelity stick-figure visual style is consistent throughout.
+1. When a user opens the game in their browser, a controls dialog/overlay is displayed prominently on screen.
+2. The dialog clearly communicates: WASD for movement, mouse for aiming, click to shoot.
+3. The dialog can be dismissed by the user (via click, keypress, or close button).
+4. After dismissal, the dialog does not reappear during the same session.
+5. The dialog does not block WebSocket connection or game state initialization (game connects in the background).
+6. The dialog visual style is consistent with the existing low-fidelity/monospace aesthetic of the game.

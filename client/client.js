@@ -345,4 +345,36 @@ function drawStickFigure(player, scale, cx, cy) {
   ctx.restore();
 }
 
+// --- Controls dialog ---
+const controlsOverlay = document.getElementById('controls-overlay');
+const controlsDismiss = document.getElementById('controls-dismiss');
+const controlsHint = document.getElementById('controls-hint');
+
+function dismissControls() {
+  controlsOverlay.style.display = 'none';
+}
+
+function showControls() {
+  controlsOverlay.style.display = 'flex';
+}
+
+controlsDismiss.addEventListener('click', dismissControls);
+controlsOverlay.addEventListener('click', (e) => {
+  if (e.target === controlsOverlay) dismissControls();
+});
+controlsHint.addEventListener('click', showControls);
+
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'h') {
+    if (controlsOverlay.style.display === 'none') {
+      showControls();
+    } else {
+      dismissControls();
+    }
+  }
+  if (e.key === 'Escape') {
+    dismissControls();
+  }
+});
+
 requestAnimationFrame(render);
