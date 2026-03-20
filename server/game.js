@@ -17,6 +17,128 @@ const MIN_PLAYERS_TO_START = 2;
 const TICK_RATE = 20; // ticks per second
 const TICK_INTERVAL_MS = 1000 / TICK_RATE;
 
+// --- Polygon Geometry Utilities ---
+
+function generateConvexPolygon(numVertices, radius) {
+  // Generate random angles, sort them, place vertices on circle with radial jitter
+  const angles = [];
+  for (let i = 0; i < numVertices; i++) {
+    angles.push(Math.random() * Math.PI * 2);
+  }
+  angles.sort((a, b) => a - b);
+
+  const vertices = [];
+  for (let i = 0; i < numVertices; i++) {
+    const r = radius * (0.75 + Math.random() * 0.25);
+    vertices.push({
+      x: Math.cos(angles[i]) * r,
+      y: Math.sin(angles[i]) * r,
+    });
+  }
+  return vertices;
+}
+
+function getPolygonCentroid(vertices) {
+  let cx = 0;
+  let cy = 0;
+  for (const v of vertices) {
+    cx += v.x;
+    cy += v.y;
+  }
+  return { x: cx / vertices.length, y: cy / vertices.length };
+}
+
+function scalePolygonTowardCentroid(vertices, centroid, t) {
+  const factor = 1 - t;
+  return vertices.map((v) => ({
+    x: centroid.x + (v.x - centroid.x) * factor,
+    y: centroid.y + (v.y - centroid.y) * factor,
+  }));
+}
+
+function pointInConvexPolygon(px, py, vertices) {
+  const n = vertices.length;
+  if (n < 3) return false;
+
+  // Cross-product sign test: point must be on the same side of every edge
+  let sign = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const ex = vertices[j].x - vertices[i].x;
+    const ey = vertices[j].y - vertices[i].y;
+    const dx = px - vertices[i].x;
+    const dy = py - vertices[i].y;
+    const cross = ex * dy - ey * dx;
+
+    if (cross !== 0) {
+      if (sign === 0) {
+        sign = cross > 0 ? 1 : -1;
+      } else if ((cross > 0 ? 1 : -1) !== sign) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function clampPointToPolygon(px, py, vertices) {
+  if (pointInConvexPolygon(px, py, vertices)) {
+    return { x: px, y: py };
+  }
+
+  // Find closest point on polygon boundary
+  let bestDist = Infinity;
+  let bestX = px;
+  let bestY = py;
+  const n = vertices.length;
+
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const ax = vertices[i].x;
+    const ay = vertices[i].y;
+    const bx = vertices[j].x;
+    const by = vertices[j].y;
+
+    const abx = bx - ax;
+    const aby = by - ay;
+    const apx = px - ax;
+    const apy = py - ay;
+
+    const abLen2 = abx * abx + aby * aby;
+    let t = abLen2 > 0 ? (apx * abx + apy * aby) / abLen2 : 0;
+    t = Math.max(0, Math.min(1, t));
+
+    const cx = ax + abx * t;
+    const cy = ay + aby * t;
+    const dx = px - cx;
+    const dy = py - cy;
+    const dist = dx * dx + dy * dy;
+
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestX = cx;
+      bestY = cy;
+    }
+  }
+
+  return { x: bestX, y: bestY };
+}
+
+function randomPointInPolygon(vertices, centroid, radiusFraction) {
+  // Pick a random vertex direction and place at radiusFraction from centroid toward boundary
+  const idx = Math.floor(Math.random() * vertices.length);
+  const next = (idx + 1) % vertices.length;
+  // Random point along edge
+  const edgeT = Math.random();
+  const edgeX = vertices[idx].x + (vertices[next].x - vertices[idx].x) * edgeT;
+  const edgeY = vertices[idx].y + (vertices[next].y - vertices[idx].y) * edgeT;
+  // Lerp from centroid toward edge point at radiusFraction
+  return {
+    x: centroid.x + (edgeX - centroid.x) * radiusFraction,
+    y: centroid.y + (edgeY - centroid.y) * radiusFraction,
+  };
+}
+
 // --- Game States ---
 const STATE_LOBBY = 'lobby';
 const STATE_ACTIVE = 'active';
@@ -28,7 +150,12 @@ class Game {
     this.bullets = []; // array of Bullet
     this.spectators = new Set(); // player ids in spectator mode
     this.state = STATE_LOBBY;
-    this.ringRadius = ARENA_RADIUS;
+    this.arenaVertices = generateConvexPolygon(
+      5 + Math.floor(Math.random() * 6),
+      ARENA_RADIUS
+    );
+    this.arenaCentroid = getPolygonCentroid(this.arenaVertices);
+    this.ringVertices = this.arenaVertices.map((v) => ({ x: v.x, y: v.y }));
     this.ringStartTime = 0;
     this.lobbyCountdownStart = 0;
     this.roundEndTime = 0;
@@ -95,11 +222,13 @@ class Game {
   }
 
   spawnPlayer(player) {
-    const count = this.getAlivePlayers().length + 1;
-    const angle = (Math.PI * 2 * count) / Math.max(count, 8) + Math.random() * 0.3;
-    const spawnRadius = ARENA_RADIUS * 0.8;
-    player.x = Math.cos(angle) * spawnRadius;
-    player.y = Math.sin(angle) * spawnRadius;
+    const point = randomPointInPolygon(
+      this.arenaVertices,
+      this.arenaCentroid,
+      0.8
+    );
+    player.x = point.x;
+    player.y = point.y;
     player.hp = PLAYER_MAX_HP;
     player.alive = true;
     player.lastShot = 0;
@@ -178,21 +307,27 @@ class Game {
 
   startRound() {
     this.state = STATE_ACTIVE;
-    this.ringRadius = ARENA_RADIUS;
+    this.arenaVertices = generateConvexPolygon(
+      5 + Math.floor(Math.random() * 6),
+      ARENA_RADIUS
+    );
+    this.arenaCentroid = getPolygonCentroid(this.arenaVertices);
+    this.ringVertices = this.arenaVertices.map((v) => ({ x: v.x, y: v.y }));
     this.ringStartTime = Date.now();
     this.bullets = [];
     this.winnerId = null;
 
-    // Respawn all non-spectator players around the edge
+    // Respawn all non-spectator players inside the polygon
     const totalPlayers = this.getNonSpectatorPlayers().length;
     this.roundParticipants = totalPlayers;
     let index = 0;
     for (const player of this.players.values()) {
       if (!this.spectators.has(player.id)) {
-        const angle = (Math.PI * 2 * index) / Math.max(totalPlayers, 2);
-        const spawnRadius = ARENA_RADIUS * 0.8;
-        player.x = Math.cos(angle) * spawnRadius;
-        player.y = Math.sin(angle) * spawnRadius;
+        // Distribute players around polygon at 80% distance from centroid
+        const vertIdx = index % this.arenaVertices.length;
+        const v = this.arenaVertices[vertIdx];
+        player.x = this.arenaCentroid.x + (v.x - this.arenaCentroid.x) * 0.8;
+        player.y = this.arenaCentroid.y + (v.y - this.arenaCentroid.y) * 0.8;
         player.hp = PLAYER_MAX_HP;
         player.alive = true;
         player.lastShot = 0;
@@ -202,10 +337,14 @@ class Game {
   }
 
   tickActive(dt, now) {
-    // Update ring
+    // Update ring (shrink polygon toward centroid)
     const elapsed = now - this.ringStartTime;
     const shrinkProgress = Math.min(elapsed / RING_SHRINK_DURATION_MS, 1);
-    this.ringRadius = ARENA_RADIUS * (1 - shrinkProgress * 0.95); // shrinks to 5% of original
+    this.ringVertices = scalePolygonTowardCentroid(
+      this.arenaVertices,
+      this.arenaCentroid,
+      shrinkProgress * 0.95
+    );
 
     // Move players
     for (const player of this.players.values()) {
@@ -242,16 +381,14 @@ class Game {
     const newX = player.x + dx;
     const newY = player.y + dy;
 
-    // Server-authoritative: clamp to arena bounds
-    const distFromCenter = Math.sqrt(newX * newX + newY * newY);
-    if (distFromCenter <= ARENA_RADIUS) {
+    // Server-authoritative: clamp to polygon arena bounds
+    if (pointInConvexPolygon(newX, newY, this.arenaVertices)) {
       player.x = newX;
       player.y = newY;
     } else {
-      // Push to arena edge
-      const scale = ARENA_RADIUS / distFromCenter;
-      player.x = newX * scale;
-      player.y = newY * scale;
+      const clamped = clampPointToPolygon(newX, newY, this.arenaVertices);
+      player.x = clamped.x;
+      player.y = clamped.y;
     }
   }
 
@@ -264,9 +401,8 @@ class Game {
       bullet.x += bullet.vx * dt;
       bullet.y += bullet.vy * dt;
 
-      // Check if bullet is outside arena
-      const dist = Math.sqrt(bullet.x * bullet.x + bullet.y * bullet.y);
-      if (dist > ARENA_RADIUS + 50) return false;
+      // Check if bullet is outside arena polygon
+      if (!pointInConvexPolygon(bullet.x, bullet.y, this.arenaVertices)) return false;
 
       // Check collision with players
       for (const player of this.players.values()) {
@@ -295,8 +431,7 @@ class Game {
     for (const player of this.players.values()) {
       if (!player.alive || this.spectators.has(player.id)) continue;
 
-      const dist = Math.sqrt(player.x * player.x + player.y * player.y);
-      if (dist > this.ringRadius) {
+      if (!pointInConvexPolygon(player.x, player.y, this.ringVertices)) {
         player.hp -= RING_DAMAGE_PER_SEC * dt;
         if (player.hp <= 0) {
           player.hp = 0;
@@ -325,7 +460,12 @@ class Game {
 
   resetForNextRound() {
     this.state = STATE_LOBBY;
-    this.ringRadius = ARENA_RADIUS;
+    this.arenaVertices = generateConvexPolygon(
+      5 + Math.floor(Math.random() * 6),
+      ARENA_RADIUS
+    );
+    this.arenaCentroid = getPolygonCentroid(this.arenaVertices);
+    this.ringVertices = this.arenaVertices.map((v) => ({ x: v.x, y: v.y }));
     this.bullets = [];
     this.winnerId = null;
     this.lobbyCountdownStart = 0;
@@ -334,14 +474,13 @@ class Game {
     // Move spectators back to active players
     this.spectators.clear();
 
-    // Respawn all players
+    // Respawn all players inside the polygon
     let index = 0;
-    const total = this.players.size;
     for (const player of this.players.values()) {
-      const angle = (Math.PI * 2 * index) / Math.max(total, 2);
-      const spawnRadius = ARENA_RADIUS * 0.8;
-      player.x = Math.cos(angle) * spawnRadius;
-      player.y = Math.sin(angle) * spawnRadius;
+      const vertIdx = index % this.arenaVertices.length;
+      const v = this.arenaVertices[vertIdx];
+      player.x = this.arenaCentroid.x + (v.x - this.arenaCentroid.x) * 0.8;
+      player.y = this.arenaCentroid.y + (v.y - this.arenaCentroid.y) * 0.8;
       player.hp = PLAYER_MAX_HP;
       player.alive = true;
       player.lastShot = 0;
@@ -393,8 +532,9 @@ class Game {
     return {
       type: 'state',
       gameState: this.state,
-      ringRadius: this.ringRadius,
       arenaRadius: ARENA_RADIUS,
+      arenaVertices: this.arenaVertices,
+      ringVertices: this.ringVertices,
       players,
       bullets: this.bullets.map((b) => ({
         id: b.id,
@@ -435,4 +575,9 @@ module.exports = {
   STATE_LOBBY,
   STATE_ACTIVE,
   STATE_ROUND_END,
+  generateConvexPolygon,
+  getPolygonCentroid,
+  scalePolygonTowardCentroid,
+  pointInConvexPolygon,
+  clampPointToPolygon,
 };
