@@ -1,23 +1,23 @@
 # Integration Summary
 
 ## Plan Branch
-agent/7b877254-e6c5-4e94-87a7-82052ec9e98a
+agent/a2b205a7-a2fa-4152-b9db-b193df4b7a51
 ## Upstream Repository
 soli-testbench/ring
 
 ## Suggested PR Title
-fix(game): preserve arena polygon across countdown-to-round transition
+fix(ui): reduce player name size and reposition nickname field
 
 ## Suggested PR Description
 ## Summary
-- **Bug**: `startRound()` was regenerating the convex polygon arena (`arenaVertices` and `arenaCentroid`), causing the map shape and player positions to visibly change when the countdown ended and the round began.
-- **Fix**: Removed the `generateConvexPolygon()` and `getPolygonCentroid()` calls from `startRound()`. The polygon is now only generated in the `Game` constructor (first round) and `resetForNextRound()` (subsequent rounds), ensuring the map shown during the lobby/countdown is the same map used when the round starts.
-- **Tests**: Updated the "each new round generates a different polygon" test to verify the polygon changes in `resetForNextRound()` (the correct lifecycle point). Added a new test confirming `startRound()` preserves the lobby polygon and centroid. All 891 tests pass.
+- Shrunk player name font from `Math.max(8, r*0.35)` to `Math.max(7, r*0.25)` for a smaller, less intrusive label
+- Repositioned name label dynamically below character feet (`py + r*0.8 + fontSize + 2`) to guarantee zero overlap with the stick figure at any scale
+- Moved nickname input container from centered (`top: 60px; left: 50%`) to top-right corner (`top: 10px; right: 16px`) to prevent overlap with the map canvas and HUD
 
 ## Test plan
-- [x] `npm test` passes (891/891)
-- [x] New test verifies `arenaVertices` and `arenaCentroid` are identical before and after `startRound()`
-- [x] Existing polygon-change test updated to test `resetForNextRound()` instead of `startRound()`
+- [x] All 881 existing tests pass (`npm test`)
+- [ ] Visual verification: player names appear in smaller font clearly below stick figure with no overlap
+- [ ] Visual verification: nickname input sits in top-right corner, away from map canvas and HUD
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
@@ -25,6 +25,6 @@ fix(game): preserve arena polygon across countdown-to-round transition
 
 ## Original Task
 
-**Description**: There's a bug where the map during the countdown and the player positioning during the countdown isn't the same as the map when the round starts. Please fix. 
+**Description**: The player name is still too big and overlapping with the character. Make it not overlap with the character at all, and in a smaller font just below the character. Move the nickname field so that it doesn't overlap with the UI; it overlaps with the map sometimes.
 
 **Acceptance Criteria**:
