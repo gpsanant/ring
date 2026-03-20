@@ -1,0 +1,17 @@
+{
+  "mode": "single",
+  "claudeMd": "# Project Context\n\nYou are working on Ring - Battle Royale, a top-down multiplayer stick-figure arena game.\n\n## Task\n\nThe task description was undefined. No specific changes are required. Verify the project builds and tests pass, then signal completion.\n\n## Tech Stack\n- Node.js with `ws@^8.16.0` for WebSocket\n- Vanilla JS client with HTML5 Canvas\n- Custom test harness (not a framework)\n- Dockerfile with node:20-alpine\n\n## Conventions\n- CommonJS modules (`require`/`module.exports`)\n- `'use strict'` at top of each JS file\n- Constants in SCREAMING_SNAKE_CASE at top of game.js\n- Server-authoritative game state, client is rendering-only\n\n## Commands\n- Test: `npm test` (runs `node test/game.test.js`)\n- Start: `npm start` (runs `node server/index.js` on port 8080)\n- Build: `docker build .`\n\n## Gotchas\n- No task was specified (all fields undefined) — do not invent work\n- All 44 existing tests pass\n- Do not modify any files unless a clear task is provided",
+  "subtasks": [],
+  "integration": null,
+  "verification": {
+    "buildCommand": "npm test",
+    "runCommand": "npm start",
+    "readySignal": "Ring - Battle Royale server running",
+    "appType": "web",
+    "port": 8080,
+    "checks": [
+      "The game loads in a browser showing a dark canvas with 'Connecting...' or 'Connected' status text",
+      "All 44 existing unit tests pass when running npm test"
+    ]
+  }
+}
