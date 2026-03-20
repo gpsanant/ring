@@ -205,30 +205,53 @@ function render() {
   const cx = canvasSize / 2;
   const cy = canvasSize / 2;
 
-  // Draw arena background (dark circle)
+  // Helper to trace a polygon path
+  function tracePolygon(vertices) {
+    if (!vertices || vertices.length < 3) return;
+    ctx.moveTo(cx + vertices[0].x * scale, cy + vertices[0].y * scale);
+    for (let i = 1; i < vertices.length; i++) {
+      ctx.lineTo(cx + vertices[i].x * scale, cy + vertices[i].y * scale);
+    }
+    ctx.closePath();
+  }
+
+  // Draw arena background (polygon)
+  const arenaVerts = gameState.arenaVertices;
+  const ringVerts = gameState.ringVertices;
+
   ctx.beginPath();
-  ctx.arc(cx, cy, arenaRadius * scale, 0, Math.PI * 2);
+  tracePolygon(arenaVerts);
   ctx.fillStyle = '#1a1a2e';
   ctx.fill();
   ctx.strokeStyle = '#333';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Draw ring (safe zone)
-  ctx.beginPath();
-  ctx.arc(cx, cy, gameState.ringRadius * scale, 0, Math.PI * 2);
-  ctx.strokeStyle = '#f44';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
   // Draw danger zone (outside ring but inside arena) with red tint
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, arenaRadius * scale, 0, Math.PI * 2);
-  ctx.arc(cx, cy, gameState.ringRadius * scale, 0, Math.PI * 2, true);
-  ctx.fillStyle = 'rgba(255, 50, 50, 0.15)';
-  ctx.fill();
-  ctx.restore();
+  if (ringVerts && ringVerts.length >= 3) {
+    ctx.save();
+    ctx.beginPath();
+    tracePolygon(arenaVerts);
+    // Trace ring polygon in reverse for cutout
+    for (let i = ringVerts.length - 1; i >= 0; i--) {
+      if (i === ringVerts.length - 1) {
+        ctx.moveTo(cx + ringVerts[i].x * scale, cy + ringVerts[i].y * scale);
+      } else {
+        ctx.lineTo(cx + ringVerts[i].x * scale, cy + ringVerts[i].y * scale);
+      }
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 50, 50, 0.15)';
+    ctx.fill();
+    ctx.restore();
+
+    // Draw ring boundary (safe zone outline)
+    ctx.beginPath();
+    tracePolygon(ringVerts);
+    ctx.strokeStyle = '#f44';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
 
   // Draw grid lines for visual reference
   ctx.strokeStyle = '#222';
