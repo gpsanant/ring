@@ -1,7 +1,7 @@
 'use strict';
 
 const { createNPC, pickNPCName, updateNPCAI, MAX_NPC_COUNT, MIN_REAL_PLAYERS_FOR_NO_BOTS } = require('./npc');
-const { Leaderboard } = require('./leaderboard');
+const { Leaderboard, isReservedName } = require('./leaderboard');
 
 // --- Constants ---
 const ARENA_RADIUS = 500;
@@ -281,12 +281,7 @@ class Game {
 
   removePlayer(id) {
     // Unregister nickname
-    for (const [nick, pid] of this.registeredNicknames) {
-      if (pid === id) {
-        this.registeredNicknames.delete(nick);
-        break;
-      }
-    }
+    this._unregisterNickname(id);
     this.players.delete(id);
     this.spectators.delete(id);
     this.npcIds.delete(id);
@@ -408,17 +403,33 @@ class Game {
     player.lastShot = 0;
   }
 
+  _unregisterNickname(playerId) {
+    for (const [nick, pid] of this.registeredNicknames) {
+      if (pid === playerId) {
+        this.registeredNicknames.delete(nick);
+        return;
+      }
+    }
+  }
+
   setPlayerName(playerId, name) {
     const player = this.players.get(playerId);
     if (!player) return { ok: false, error: 'Player not found' };
     if (typeof name !== 'string') {
+      this._unregisterNickname(playerId);
       player.name = `Player ${playerId}`;
       return { ok: true };
     }
     const trimmed = name.trim().slice(0, 16);
     if (!trimmed) {
+      this._unregisterNickname(playerId);
       player.name = `Player ${playerId}`;
       return { ok: true };
+    }
+
+    // Reject reserved JS property names to prevent prototype pollution
+    if (isReservedName(trimmed)) {
+      return { ok: false, error: 'That nickname is not allowed' };
     }
 
     // Check nickname uniqueness among connected players
@@ -428,13 +439,17 @@ class Game {
       return { ok: false, error: 'Nickname already taken' };
     }
 
-    // Unregister old nickname if player had one
-    for (const [nick, pid] of this.registeredNicknames) {
-      if (pid === playerId) {
-        this.registeredNicknames.delete(nick);
-        break;
+    // Check global uniqueness against persisted leaderboard identities
+    if (this.leaderboard.hasNickname(trimmed)) {
+      // Allow if this player already owns that leaderboard identity
+      // (i.e., they are reclaiming their own name in this session)
+      if (existingOwner !== playerId) {
+        return { ok: false, error: 'Nickname already taken' };
       }
     }
+
+    // Unregister old nickname if player had one
+    this._unregisterNickname(playerId);
 
     // Register new nickname
     this.registeredNicknames.set(lowerName, playerId);
