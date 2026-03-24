@@ -15,7 +15,7 @@ const NPC_SHOOT_RANGE = 190; // distance within which NPC will try to shoot (ner
 const NPC_SHOOT_ANGLE_TOLERANCE = 0.55; // radians (~31 degrees) — wider tolerance means less accurate (nerfed from 0.3)
 const NPC_RING_DANGER_MARGIN = 50; // start moving inward when this close to ring edge
 const NPC_WANDER_CHANGE_INTERVAL = 2000; // ms between wander direction changes
-const NPC_REACTION_DELAY = 400; // ms before NPC starts shooting at a newly spotted enemy
+const NPC_REACTION_DELAY = 400; // ms delay before NPC starts shooting at a newly spotted enemy
 
 /**
  * Create an NPC player object (no WebSocket).
